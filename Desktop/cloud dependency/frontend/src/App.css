@@ -1,0 +1,24 @@
+:root {
+  --background-dark: #0f0f1a;
+  --primary-purple: #6a0572;
+  --accent-blue: #4831d4;
+}
+
+* {
+  box-sizing: border-box;
+  transition: all 0.3s ease;
+}
+
+.tech-gradient {
+  background: linear-gradient(135deg, var(--background-dark), var(--primary-purple));
+}
+
+.glowing-border {
+  border: 1px solid rgba(106, 5, 114, 0.5);
+  box-shadow: 0 0 15px rgba(106, 5, 114, 0.3);
+}
+
+.ai-hover:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(106, 5, 114, 0.5);
+}
