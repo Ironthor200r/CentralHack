@@ -4,6 +4,7 @@ import logging
 import time
 import tempfile
 import zipfile
+import getpass
 from datetime import datetime
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -14,9 +15,11 @@ import requests
 import networkx as nx
 import matplotlib.pyplot as plt
 
+# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('CloudScanner')
 
+# ----- Cloud & Resource Definitions -----
 class CloudProvider(Enum):
     AWS = "aws"
     AZURE = "azure"
@@ -51,21 +54,29 @@ class CloudResource:
         self.dependencies = self.dependencies or set()
         self.tags = self.tags or {}
 
+# ----- Abstract Cloud Scanner Interface -----
 class CloudScanner(ABC):
     @abstractmethod
-    def authenticate(self) -> bool: pass
+    def authenticate(self) -> bool: 
+        pass
     @abstractmethod
-    def scan_resources(self) -> List[CloudResource]: pass
+    def scan_resources(self) -> List[CloudResource]:
+        pass
     @abstractmethod
-    def get_dependencies(self, resource: CloudResource) -> Set[str]: pass
+    def get_dependencies(self, resource: CloudResource) -> Set[str]:
+        pass
 
+# ----- AWS Scanner Implementation -----
 class AWSScanner(CloudScanner):
-    def __init__(self, region: str, profile: str = None):
+    def __init__(self, region: str, profile: str = None, session: boto3.Session = None):
         self.region = region
         self.profile = profile
+        if session:
+            self.session = session
+        else:
+            self.session = boto3.Session(profile_name=profile, region_name=region)
         self.account_id = None
         try:
-            self.session = boto3.Session(profile_name=profile, region_name=region)
             self._initialize_clients()
             self.account_id = self.session.client('sts').get_caller_identity()['Account']
         except Exception as e:
@@ -91,8 +102,8 @@ class AWSScanner(CloudScanner):
     def scan_resources(self) -> List[CloudResource]:
         resources = []
         methods = [self._scan_ec2_instances, self._scan_lambda_functions,
-                  self._scan_rds_instances, self._scan_s3_buckets,
-                  self._scan_sqs_queues, self._scan_iam_roles]
+                   self._scan_rds_instances, self._scan_s3_buckets,
+                   self._scan_sqs_queues, self._scan_iam_roles]
         for method in methods:
             try:
                 resources.extend(method())
@@ -342,46 +353,6 @@ class AWSScanner(CloudScanner):
             logger.error(f"Reverse dependency lookup error: {str(e)}")
         return deps
 
-    def _get_ec2_dependencies(self, instance_id: str) -> Set[str]:
-        dependencies = set()
-        try:
-            instance = self.ec2_client.describe_instances(InstanceIds=[instance_id])['Reservations'][0]['Instances'][0]
-            if 'VpcId' in instance:
-                dependencies.add(instance['VpcId'])
-            for sg in instance.get('SecurityGroups', []):
-                dependencies.add(sg['GroupId'])
-            if 'SubnetId' in instance:
-                dependencies.add(instance['SubnetId'])
-        except Exception as e:
-            logger.error(f"EC2 dep error: {str(e)}")
-        return dependencies
-
-    def _get_lambda_dependencies(self, function_arn: str) -> Set[str]:
-        deps = set()
-        try:
-            func = self.lambda_client.get_function(FunctionName=function_arn)
-            config = func['Configuration']
-            if 'VpcConfig' in config:
-                deps.update(config['VpcConfig'].get('SubnetIds', []))
-                deps.update(config['VpcConfig'].get('SecurityGroupIds', []))
-            deps.update(layer['Arn'] for layer in config.get('Layers', []))
-            if 'Role' in config:
-                deps.add(config['Role'])
-        except Exception as e:
-            logger.error(f"Lambda dep error: {str(e)}")
-        return deps
-
-    def _get_iam_role_dependencies(self, role_name: str) -> Set[str]:
-        deps = set()
-        try:
-            inline_policies = self.iam_client.list_role_policies(RoleName=role_name)
-            deps.update(f"{role_name}/inline-policy/{p}" for p in inline_policies.get('PolicyNames', []))
-            managed_policies = self.iam_client.list_attached_role_policies(RoleName=role_name)
-            deps.update(p['PolicyArn'] for p in managed_policies.get('AttachedPolicies', []))
-        except Exception as e:
-            logger.error(f"IAM dep error: {str(e)}")
-        return deps
-
     def _get_name_from_tags(self, tags: List[Dict]) -> str:
         for tag in tags:
             if tag['Key'].lower() == 'name':
@@ -391,6 +362,7 @@ class AWSScanner(CloudScanner):
     def _convert_tags(self, aws_tags: List[Dict]) -> Dict:
         return {tag['Key']: tag['Value'] for tag in aws_tags}
 
+# ----- Dependency Visualizer -----
 class DependencyVisualizer:
     def __init__(self):
         self.graph = nx.DiGraph()
@@ -473,6 +445,7 @@ class DependencyVisualizer:
                    pad_inches=0.5)
         plt.close()
 
+# ----- Multi-Cloud Scanner -----
 class MultiCloudScanner:
     def __init__(self):
         self.scanners: Dict[CloudProvider, CloudScanner] = {}
@@ -525,6 +498,7 @@ class MultiCloudScanner:
                         if res.type == ResourceType.NETWORK and dep_id in res.properties.get('security_groups', [])), None)
         return dep_id
 
+# ----- Vulnerability Analyzer -----
 class VulnerabilityAnalyzer:
     def __init__(self):
         self.nvd_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
@@ -621,6 +595,7 @@ class VulnerabilityAnalyzer:
             ])
         return terms
 
+# ----- Risk Predictor -----
 class RiskPredictor:
     def __init__(self):
         self.risk_weights = {
@@ -662,6 +637,7 @@ class RiskPredictor:
                 return 0.7
         return 0.3
 
+# ----- Remediation Engine -----
 class RemediationEngine:
     REMEDIATION_ACTIONS = {
         'lambda_runtime_update': {
@@ -702,11 +678,12 @@ class RemediationEngine:
         'outdated_package': {
             'condition': lambda r: (hasattr(r, 'properties') and 
                                    ('packages' in r.properties or 'layer_packages' in r.properties)),
-            'action': lambda r: self._package_remediation(r)
+            'action': lambda r: RemediationEngine._package_remediation(r)
         }
     }
 
-    def _package_remediation(self, resource: CloudResource) -> str:
+    @staticmethod
+    def _package_remediation(resource: CloudResource) -> str:
         remediations = []
         if 'packages' in resource.properties:
             for pkg, ver in resource.properties['packages'].items():
@@ -736,12 +713,53 @@ class RemediationEngine:
             logger.error(f"Remediation generation error: {str(e)}")
             return []
 
-def main():
+# ----- AWS Login Function -----
+def login_to_aws() -> Optional[boto3.Session]:
+    """
+    Prompts the user for AWS credentials and attempts to validate them by calling
+    the STS GetCallerIdentity API. If successful, returns a boto3 Session.
+    """
+    print("\n=== AWS Login ===")
+    
+    access_key = input("Enter AWS Access Key ID: ").strip()
+    secret_key = getpass.getpass("Enter AWS Secret Access Key: ")
+    region = input("Enter AWS Region (default us-east-1): ").strip() or "us-east-1"
+    
+    try:
+        session = boto3.Session(
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region
+        )
+        sts_client = session.client('sts')
+        identity = sts_client.get_caller_identity()
+        print("\nLogin successful!")
+        print(f"Account: {identity.get('Account')}")
+        print(f"UserId: {identity.get('UserId')}")
+        print(f"ARN: {identity.get('Arn')}")
+        return session
+    except ClientError as e:
+        print("\nInvalid credentials. Please try again.")
+        return None
+    except Exception as e:
+        print(f"\nLogin failed: {str(e)}")
+        return None
+
+# ----- badalIChooseYou Function -----
+def badalIChooseYou():
     logging.basicConfig(level=logging.INFO,
                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Get AWS credentials from the user.
+    session = login_to_aws()
+    if not session:
+        logger.error("AWS login failed. Exiting.")
+        return
+    
     scanner = MultiCloudScanner()
     try:
-        aws_scanner = AWSScanner(region='ap-south-1', profile='default')
+        # Use the session from login in AWSScanner.
+        aws_scanner = AWSScanner(region=session.region_name, session=session)
         scanner.add_scanner(CloudProvider.AWS, aws_scanner)
     except Exception as e:
         logger.error(f"AWS init failed: {str(e)}")
@@ -811,4 +829,4 @@ def main():
             print("- No dependencies found")
 
 if __name__ == "__main__":
-    main()
+    badalIChooseYou()

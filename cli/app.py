@@ -1,8 +1,9 @@
 import click
 import sys
 from typing import Optional
-from login.login import loginWithUsernameAndPassword
+from login.login import login_to_aws
 from dependencyDisplay.dependencyManager import display_dependency_graph_terminal
+from CADAT.badal import badalIChooseYou
 
 ASCII_ART = r"""
  $$$$$$\   $$$$$$\ $$$$$$$$\  $$$$$$\       $$$$$$$$\  $$$$$$\   $$$$$$\  $$\       
@@ -32,8 +33,13 @@ def hello(verbose: bool) -> None:
 @cli.command()
 def login() -> None:
     """Call the login function"""
-    if not loginWithUsernameAndPassword():
+    if not login_to_aws():
         sys.exit(1)
+
+@cli.command()
+def cloudanal() -> None:
+    """Run the cloud analysis tool"""
+    badalIChooseYou()
 
 @cli.command()
 def depgraph() -> None:
