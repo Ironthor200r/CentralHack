@@ -37,7 +37,7 @@ def login() -> None:
         sys.exit(1)
 
 @cli.command()
-def cloudanal() -> None:
+def cloudanalysis() -> None:
     """Run the cloud analysis tool"""
     badalIChooseYou()
 
